@@ -131,6 +131,23 @@ export async function updateDealStatus(dealId, status) {
   return data;
 }
 
+export async function deleteDeal(dealId) {
+  const { error: confirmationError } = await supabaseAdmin
+    .from('deal_confirmations')
+    .delete()
+    .eq('deal_id', dealId);
+  if (confirmationError) throw confirmationError;
+
+  const { data, error } = await supabaseAdmin
+    .from('deals')
+    .delete()
+    .eq('id', dealId)
+    .select('id,title')
+    .single();
+  if (error) throw error;
+  return data;
+}
+
 async function uploadDealImage(file) {
   const extension = file.originalname.split('.').pop() || 'jpg';
   const fileName = `${Date.now()}-${crypto.randomUUID()}.${extension}`;

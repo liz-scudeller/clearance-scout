@@ -111,6 +111,8 @@ async function classifyWithRules(rawMention) {
     discountText: null,
     startDate: null,
     expiresAt: null,
+    imageUrl: null,
+    imageDescription: null,
     confidenceScore: ruleResult.confidenceScore,
     shouldCreateDeal: ruleResult.shouldCreateDeal,
     suggestedStatus: ruleResult.confidenceScore >= env.aiAutoApproveThreshold ? 'active' : ruleResult.confidenceScore >= env.aiPendingReviewThreshold ? 'pending' : 'ignored',
@@ -169,6 +171,8 @@ function validateClassification(value) {
     discountText: value.discountText || null,
     startDate: value.startDate || null,
     expiresAt: value.expiresAt || null,
+    imageUrl: sanitizeImageUrl(value.imageUrl),
+    imageDescription: value.imageDescription ? String(value.imageDescription).slice(0, 180) : null,
     confidenceScore,
     shouldCreateDeal: Boolean(value.shouldCreateDeal) && suggestedStatus !== 'ignored',
     suggestedStatus,
@@ -245,4 +249,15 @@ async function saveAiError(id, message) {
 
 function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
+}
+
+function sanitizeImageUrl(value) {
+  if (!value || typeof value !== 'string') return null;
+  try {
+    const url = new URL(value);
+    if (!['https:', 'http:'].includes(url.protocol)) return null;
+    return url.toString();
+  } catch {
+    return null;
+  }
 }

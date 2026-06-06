@@ -33,8 +33,10 @@ export function getDeals(filters = {}) {
 export const getDeal = (id) => request(`/api/deals/${id}`);
 export const createDeal = (formData) => request('/api/deals', { method: 'POST', body: formData });
 export const confirmDeal = (id, confirmationStatus) => request(`/api/deals/${id}/confirm`, { method: 'POST', body: JSON.stringify({ confirmationStatus }) });
+export const getAdminMe = () => request('/api/admin/me');
 export const getPendingDeals = () => request('/api/admin/deals/pending');
 export const updateDealStatus = (id, status) => request(`/api/admin/deals/${id}/status`, { method: 'PATCH', body: JSON.stringify({ status }) });
+export const deleteDeal = (id) => request(`/api/admin/deals/${id}`, { method: 'DELETE' });
 export const runScanners = () => request('/api/admin/scanners/run', { method: 'POST', body: JSON.stringify({}) });
 export const getScannerRuns = () => request('/api/admin/scanners/runs');
 export function getRawDealMentions(filters = {}) {

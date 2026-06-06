@@ -1,9 +1,11 @@
 import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { supabase } from '../services/supabaseClient';
 import { useAuth } from '../hooks/useAuth';
+import { useAdminStatus } from '../hooks/useAdminStatus';
 
 export default function Navbar() {
   const { user } = useAuth();
+  const { isAdmin } = useAdminStatus();
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -15,13 +17,12 @@ export default function Navbar() {
   const desktopClass = ({ isActive }) =>
     `rounded px-3 py-2 text-sm font-semibold ${isActive ? 'bg-brand text-white' : 'text-brand hover:bg-white'}`;
 
-  const mobileClass = ({ isActive }) =>
-    `flex flex-col items-center gap-1 text-[11px] font-semibold ${isActive ? 'text-brand' : 'text-stone-500'}`;
-
   const isMap = location.pathname === '/deals' && new URLSearchParams(location.search).get('view') === 'map';
   const isHome = location.pathname === '/deals' && !isMap;
+  const mobileClass = ({ isActive }) =>
+    `flex flex-col items-center ${isMap ? 'gap-0 text-[0px]' : 'gap-1 text-[11px]'} font-semibold ${isActive ? 'text-brand' : 'text-stone-500'}`;
   const mobileStaticClass = (active) =>
-    `flex flex-col items-center gap-1 text-[11px] font-semibold ${active ? 'text-brand' : 'text-stone-500'}`;
+    `flex flex-col items-center ${isMap ? 'gap-0 text-[0px]' : 'gap-1 text-[11px]'} font-semibold ${active ? 'text-brand' : 'text-stone-500'}`;
 
   return (
     <>
@@ -33,9 +34,12 @@ export default function Navbar() {
           </Link>
           <div className="hidden flex-wrap items-center gap-2 md:flex">
             <NavLink className={desktopClass} to="/deals">Deals</NavLink>
+            <NavLink className={desktopClass} to="/alerts">Alerts</NavLink>
+            <NavLink className={desktopClass} to="/saved">Saved</NavLink>
+            <NavLink className={desktopClass} to="/profile">Profile</NavLink>
             <NavLink className={desktopClass} to="/report">Report</NavLink>
-            <NavLink className={desktopClass} to="/admin/scanner">Scanner</NavLink>
-            <NavLink className={desktopClass} to="/admin">Admin</NavLink>
+            {isAdmin && <NavLink className={desktopClass} to="/admin/scanner">Scanner</NavLink>}
+            {isAdmin && <NavLink className={desktopClass} to="/admin">Admin</NavLink>}
             {user ? (
               <button onClick={handleLogout} className="rounded bg-white px-3 py-2 text-sm font-semibold text-brand shadow-sm">Log out</button>
             ) : (
@@ -45,15 +49,15 @@ export default function Navbar() {
         </nav>
       </header>
 
-      <nav className="fixed bottom-0 left-0 right-0 z-40 grid grid-cols-5 rounded-t-2xl border-t border-stone-200 bg-white px-3 pb-4 pt-3 shadow-[0_-8px_30px_rgba(0,0,0,.08)] md:hidden">
+      <nav className={`fixed bottom-0 left-0 right-0 z-40 grid grid-cols-5 rounded-t-2xl border-t border-[#E5E7EB] bg-white px-3 shadow-[0_-8px_30px_rgba(11,31,58,.08)] md:hidden ${isMap ? 'pb-3 pt-3' : 'pb-3 pt-2'}`}>
         <Link className={mobileStaticClass(isHome)} to="/deals"><NavIcon name="home" />Home</Link>
         <Link className={mobileStaticClass(isMap)} to="/deals?view=map"><NavIcon name="map" />Map</Link>
-        <NavLink className="relative -mt-6 flex flex-col items-center gap-1 text-[11px] font-semibold text-brand" to="/report">
-          <span className="grid h-14 w-14 place-items-center rounded-full bg-brand text-3xl text-white shadow-lg">+</span>
-          Report
+        <NavLink className={`relative flex flex-col items-center font-semibold text-brand ${isMap ? '-mt-4 gap-0 text-[0px]' : '-mt-6 gap-1 text-[11px]'}`} to="/report">
+          <span className={`grid place-items-center rounded-full bg-deal-orange text-white shadow-lg ${isMap ? 'h-10 w-10 text-2xl' : 'h-12 w-12 text-3xl'}`}>+</span>
+          <span>Report</span>
         </NavLink>
-        <NavLink className={mobileClass} to="/admin/scanner"><NavIcon name="bell" />Alerts</NavLink>
-        <NavLink className={mobileClass} to="/deals"><NavIcon name="heart" />Saved</NavLink>
+        <NavLink className={mobileClass} to="/alerts"><NavIcon name="bell" />Alerts</NavLink>
+        <NavLink className={mobileClass} to="/saved"><NavIcon name="heart" />Saved</NavLink>
       </nav>
     </>
   );

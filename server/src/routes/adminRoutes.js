@@ -1,5 +1,7 @@
 import { Router } from 'express';
 import {
+  deleteAdminDeal,
+  getAdminMe,
   getPendingDeals,
   getRawDealMentions,
   getScannerRuns,
@@ -13,9 +15,13 @@ import { requireAuth } from '../middleware/auth.js';
 
 const router = Router();
 
-router.use(requireAuth, requireAdmin);
+router.use(requireAuth);
+router.get('/me', getAdminMe);
+
+router.use(requireAdmin);
 router.get('/deals/pending', getPendingDeals);
 router.patch('/deals/:id/status', patchDealStatus);
+router.delete('/deals/:id', deleteAdminDeal);
 router.post('/scanners/run', postRunScanners);
 router.get('/scanners/runs', getScannerRuns);
 router.get('/raw-deal-mentions', getRawDealMentions);

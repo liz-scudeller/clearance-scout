@@ -8,6 +8,8 @@ Ignore normal weekly flyers, ordinary discounts, vague promotions, and generic s
 
 Be conservative:
 - Never invent discounts, addresses, dates, store names, or locations.
+- If the raw mention includes a real image URL for the deal/store/source, return it as imageUrl. Do not invent image URLs.
+- If no real image URL exists, return a short imageDescription that describes the likely visual category for a generic deal image.
 - If a field is unknown, return null.
 - Keep userFacingSummary short, cautious, and include "Detected automatically" when it may become user-facing.
 - Use confidenceScore 0-100.
@@ -30,6 +32,8 @@ Return only valid JSON with this exact shape:
   "discountText": string | null,
   "startDate": string | null,
   "expiresAt": string | null,
+  "imageUrl": string | null,
+  "imageDescription": string | null,
   "confidenceScore": number,
   "shouldCreateDeal": boolean,
   "suggestedStatus": "active" | "pending" | "ignored",

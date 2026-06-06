@@ -1,4 +1,4 @@
-import { listPendingDeals, updateDealStatus } from '../services/dealService.js';
+import { deleteDeal, listPendingDeals, updateDealStatus } from '../services/dealService.js';
 import {
   convertRawMentionToDeal,
   ignoreRawMention,
@@ -6,6 +6,15 @@ import {
   listScannerRuns,
   runAllScanners
 } from '../services/scannerService.js';
+import { isAdminUser } from '../middleware/admin.js';
+
+export async function getAdminMe(req, res, next) {
+  try {
+    res.json({ isAdmin: await isAdminUser(req.user) });
+  } catch (error) {
+    next(error);
+  }
+}
 
 export async function getPendingDeals(req, res, next) {
   try {
@@ -19,6 +28,15 @@ export async function getPendingDeals(req, res, next) {
 export async function patchDealStatus(req, res, next) {
   try {
     const deal = await updateDealStatus(req.params.id, req.body.status);
+    res.json({ deal });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function deleteAdminDeal(req, res, next) {
+  try {
+    const deal = await deleteDeal(req.params.id);
     res.json({ deal });
   } catch (error) {
     next(error);

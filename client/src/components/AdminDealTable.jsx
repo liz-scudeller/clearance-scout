@@ -1,6 +1,6 @@
 import { labelize } from '../utils/options';
 
-export default function AdminDealTable({ deals, onStatusChange }) {
+export default function AdminDealTable({ deals, onStatusChange, onDelete }) {
   if (!deals.length) {
     return <p className="rounded border border-stone-200 bg-white p-4 text-sm text-stone-600">No pending deals.</p>;
   }
@@ -8,13 +8,13 @@ export default function AdminDealTable({ deals, onStatusChange }) {
   return (
     <section className="space-y-4">
       {deals.map((deal) => (
-        <AdminDealCard key={deal.id} deal={deal} onStatusChange={onStatusChange} />
+        <AdminDealCard key={deal.id} deal={deal} onStatusChange={onStatusChange} onDelete={onDelete} />
       ))}
     </section>
   );
 }
 
-function AdminDealCard({ deal, onStatusChange }) {
+function AdminDealCard({ deal, onStatusChange, onDelete }) {
   const rawMention = deal.raw_deal_mentions;
   const aiResult = rawMention?.classification_result || {};
   const sourceUrl = deal.source_url || rawMention?.source_url;
@@ -22,6 +22,11 @@ function AdminDealCard({ deal, onStatusChange }) {
   const reporter = deal.profiles?.email || deal.profiles?.full_name || null;
   const needsSourceLink = !deal.reported_by && (deal.detection_method === 'automated_ai' || deal.detection_method === 'scanner');
   const canApprove = !needsSourceLink || Boolean(sourceUrl);
+
+  function handleDelete() {
+    const confirmed = window.confirm(`Delete "${deal.title}"? This cannot be undone.`);
+    if (confirmed) onDelete?.(deal.id);
+  }
 
   return (
     <article className="rounded border border-stone-200 bg-white p-4 shadow-sm">
@@ -82,6 +87,7 @@ function AdminDealCard({ deal, onStatusChange }) {
         </button>
         <button onClick={() => onStatusChange(deal.id, 'rejected')} className="rounded bg-stone-200 px-3 py-2 font-semibold text-ink">Reject</button>
         <button onClick={() => onStatusChange(deal.id, 'expired')} className="rounded bg-citrus px-3 py-2 font-semibold text-ink">Mark Expired</button>
+        <button onClick={handleDelete} className="rounded border border-red-200 bg-white px-3 py-2 font-semibold text-red-700">Delete</button>
       </div>
     </article>
   );

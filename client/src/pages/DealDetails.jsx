@@ -1,13 +1,18 @@
 import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import ConfirmationButtons from '../components/ConfirmationButtons';
+import { useAuth } from '../hooks/useAuth';
 import { getDeal } from '../services/api';
+import { isDealSaved, subscribeToSavedDeals, toggleSavedDeal } from '../services/savedDeals';
 import { labelize } from '../utils/options';
 
 export default function DealDetails() {
   const { id } = useParams();
+  const { user } = useAuth();
+  const userId = user?.id || 'guest';
   const [deal, setDeal] = useState(null);
   const [error, setError] = useState('');
+  const [saved, setSaved] = useState(() => isDealSaved(userId, id));
 
   async function loadDeal() {
     try {
@@ -19,6 +24,10 @@ export default function DealDetails() {
   }
 
   useEffect(() => { loadDeal(); }, [id]);
+  useEffect(() => {
+    setSaved(isDealSaved(userId, id));
+    return subscribeToSavedDeals(() => setSaved(isDealSaved(userId, id)));
+  }, [userId, id]);
 
   if (error) return <main className="mx-auto max-w-3xl px-4 py-8 text-red-700">{error}</main>;
   if (!deal) return <main className="mx-auto max-w-3xl px-4 py-8 text-stone-600">Loading...</main>;
@@ -27,93 +36,110 @@ export default function DealDetails() {
   const active = deal.active_confirmation_count || 0;
   const expired = deal.expired_confirmation_count || 0;
   const sourceHost = formatSourceHost(deal.source_url);
+  const address = [deal.address, deal.city, deal.province].filter(Boolean).join(', ');
 
   return (
     <main className="mx-auto min-h-screen max-w-md bg-white pb-8 md:my-6 md:rounded-[28px] md:shadow-2xl">
-      <section className="relative h-[320px] overflow-hidden bg-app-ink md:rounded-t-[28px]">
+      <section className="relative h-[278px] overflow-hidden bg-app-ink md:h-[300px] md:rounded-t-[28px]">
         {deal.image_url ? (
           <img src={deal.image_url} alt={deal.title} className="h-full w-full object-cover" />
         ) : (
           <div className="grid h-full place-items-center bg-gradient-to-br from-app-ink to-brand text-4xl font-black text-white">{deal.store_name?.slice(0, 10) || 'SALE'}</div>
         )}
         <div className="absolute inset-0 bg-gradient-to-b from-black/35 via-transparent to-black/15" />
-        <Link className="absolute left-5 top-12 grid h-10 w-10 place-items-center rounded-full text-white" to="/deals">
+        <Link className="absolute left-5 top-10 grid h-10 w-10 place-items-center rounded-full bg-black/18 text-white backdrop-blur" to="/deals">
           <BackIcon />
         </Link>
-        <div className="absolute right-5 top-12 flex gap-4 text-white">
-          <button aria-label="Share" className="grid h-10 w-10 place-items-center rounded-full"><ShareIcon /></button>
-          <button aria-label="Save" className="grid h-10 w-10 place-items-center rounded-full"><HeartIcon /></button>
+        <div className="absolute right-5 top-10 flex gap-3 text-white">
+          <button aria-label="Share" className="grid h-10 w-10 place-items-center rounded-full bg-black/18 backdrop-blur"><ShareIcon /></button>
+          <button onClick={() => setSaved(toggleSavedDeal(userId, id))} aria-label={saved ? 'Remove saved deal' : 'Save deal'} className={`grid h-10 w-10 place-items-center rounded-full bg-black/18 backdrop-blur ${saved ? 'text-deal-amber' : ''}`}><HeartIcon filled={saved} /></button>
         </div>
       </section>
 
-      <section className="-mt-7 rounded-t-[24px] bg-white px-5 pb-8 pt-0">
-        <div className="relative z-10 mb-5 flex items-start justify-between gap-3">
-          <span className={`rounded-lg px-3 py-2 text-sm font-black uppercase text-white ${saleBadgeClass(deal.sale_type)}`}>
+      <section className="-mt-6 rounded-t-[28px] bg-white px-5 pb-8 pt-4">
+        <div className="relative z-10 flex items-start justify-between gap-3">
+          <span className={`rounded-md px-3 py-1.5 text-xs font-black uppercase text-white ${saleBadgeClass(deal.sale_type)}`}>
             {labelize(deal.sale_type)}
           </span>
-          <span className={`rounded-lg px-3 py-2 text-sm font-bold ${confidenceClass(confidence)}`}>
-            {confidenceLabel(confidence)}
+          <span className={`rounded-md px-3 py-1.5 text-xs font-black ${confidenceClass(confidence)}`}>
+            {publicStatusLabel(confidence)}
           </span>
         </div>
 
-        <h1 className="text-[26px] font-black leading-tight text-app-ink">{deal.title}</h1>
-        <div className="mt-4 space-y-2 text-base font-medium text-app-text">
+        <h1 className="mt-4 text-[27px] font-black leading-tight text-app-ink">{cleanTitle(deal)}</h1>
+        <p className="mt-2 text-2xl font-black text-deal-orange">{deal.discount_text || 'Deal details available'}</p>
+
+        <div className="mt-4 space-y-2 text-[15px] font-medium leading-6 text-app-text">
           <p className="flex items-start gap-2"><PinIcon />{deal.store_name || 'Unknown store'}</p>
-          <p className="flex items-start gap-2"><PinIcon />{[deal.address, deal.city, deal.province].filter(Boolean).join(', ') || 'Location missing'}</p>
+          <p className="flex items-start gap-2"><PinIcon />{address || 'Location missing'}</p>
+          <p className="text-sm font-semibold text-app-text"><span className="text-[#2563EB]">1.8 km away</span> · Updated {formatUpdated(deal.updated_at || deal.created_at).toLowerCase()}</p>
         </div>
 
-        <div className="mt-5 rounded-xl bg-[#FFF1E0] px-4 py-3 text-base font-medium leading-7 text-deal-orange">
-          <p>Detected automatically from public sources.</p>
-          <p>Please confirm with the store before visiting.</p>
+        <div className="mt-5 grid grid-cols-3 gap-2">
+          <a href={directionsUrl(deal)} target="_blank" rel="noreferrer" className="rounded-xl bg-brand px-3 py-3 text-center text-sm font-black text-white">Directions</a>
+          {deal.source_url ? (
+            <a href={deal.source_url} target="_blank" rel="noreferrer" className="rounded-xl border border-stone-200 bg-white px-3 py-3 text-center text-sm font-black text-app-ink">Source</a>
+          ) : (
+            <button disabled className="rounded-xl border border-stone-200 bg-stone-50 px-3 py-3 text-center text-sm font-black text-stone-400">Source</button>
+          )}
+          <button className="rounded-xl border border-stone-200 bg-white px-3 py-3 text-center text-sm font-black text-app-ink">Share</button>
         </div>
 
-        <dl className="mt-6 grid gap-4 text-base">
-          <Info icon="tag" label="Sale type" value={labelize(deal.sale_type)} />
-          <Info icon="discount" label="Discount" value={deal.discount_text || 'Not listed'} />
-          <Info icon="bag" label="Categories" value={categoryLine(deal)} />
-          <Info icon="pin" label="Distance" value="1.8 km from you" />
-          <Info icon="shield" label="Confidence" value={`${shortConfidenceLabel(confidence)} (${confidence || 0}%)`} highlight />
-          <Info icon="clock" label="Last updated" value={formatUpdated(deal.updated_at || deal.created_at)} />
-        </dl>
+        <div className="mt-5 rounded-xl bg-[#FFF1E8] px-4 py-3 text-sm font-semibold leading-6 text-deal-orange">
+          Auto-detected from public sources. Confirm with the store before visiting.
+        </div>
+
+        <div className="mt-6">
+          <h2 className="text-lg font-black text-app-ink">Details</h2>
+          <dl className="mt-3 grid grid-cols-2 gap-3">
+            <DetailTile label="Sale type" value={labelize(deal.sale_type)} />
+            <DetailTile label="Distance" value="1.8 km" />
+            <DetailTile label="Updated" value={formatUpdated(deal.updated_at || deal.created_at)} />
+            <DetailTile label="Categories" value={categoryLine(deal)} wide />
+          </dl>
+        </div>
 
         <div className="mt-6 border-t border-stone-200 pt-5">
-          <h2 className="text-xl font-black text-app-ink">About this deal</h2>
-          <p className="mt-3 text-base leading-7 text-app-ink">{deal.ai_summary || deal.description || 'No description provided yet.'}</p>
+          <h2 className="text-lg font-black text-app-ink">About</h2>
+          <p className="mt-3 text-[15px] leading-7 text-app-ink">{deal.ai_summary || deal.description || 'No description provided yet.'}</p>
+          <p className="mt-3 text-sm font-medium text-app-text">Source: {sourceHost || 'Public source'}</p>
         </div>
 
-        <div className="mt-6">
-          <h2 className="text-xl font-black text-app-ink">Source</h2>
-          {deal.source_url ? (
-            <div className="mt-3 flex items-center justify-between gap-4">
-              <a className="min-w-0 flex-1 truncate text-base font-semibold text-brand underline" href={deal.source_url} target="_blank" rel="noreferrer">{sourceHost}</a>
-              <a className="rounded-lg border border-stone-200 bg-stone-50 px-4 py-2 text-sm font-bold text-app-ink" href={deal.source_url} target="_blank" rel="noreferrer">View Original Source</a>
-            </div>
-          ) : (
-            <p className="mt-3 text-base text-stone-600">No source link provided.</p>
-          )}
-        </div>
-
-        <div className="mt-6">
-          <h2 className="text-xl font-black text-app-ink">Community confirmations</h2>
-          <p className="mt-3 text-base font-medium text-app-ink"><span className="font-black text-green-700">+ </span>{active} people confirmed still active</p>
-          <p className="mt-2 text-base font-medium text-app-ink"><span className="font-black text-red-600">x </span>{expired} people marked as expired</p>
+        <div className="mt-6 rounded-2xl border border-stone-200 bg-[#FAFAFA] p-4">
+          <h2 className="text-lg font-black text-app-ink">Community status</h2>
+          <div className="mt-3 grid grid-cols-2 gap-3">
+            <StatusBox tone="green" value={active} label="confirmed active" />
+            <StatusBox tone="red" value={expired} label="marked expired" />
+          </div>
+          <div className="mt-4 h-2 overflow-hidden rounded-full bg-stone-200">
+            <div className="h-full rounded-full bg-deal-green" style={{ width: `${confirmationRatio(active, expired)}%` }} />
+          </div>
         </div>
 
         <div className="mt-7">
           {deal.status === 'active' && <ConfirmationButtons dealId={deal.id} onConfirmed={loadDeal} variant="large" />}
-          <button className="mt-5 w-full px-4 py-2 text-center text-base font-semibold text-app-ink">Report Update</button>
+          <button className="mt-5 w-full px-4 py-2 text-center text-sm font-black text-app-ink">Report update</button>
         </div>
       </section>
     </main>
   );
 }
 
-function Info({ icon, label, value, highlight = false }) {
+function DetailTile({ label, value, wide = false }) {
   return (
-    <div className="grid grid-cols-[28px_1fr_1.7fr] items-start gap-3">
-      <dt className="grid h-6 w-6 place-items-center text-app-ink"><LineIcon name={icon} /></dt>
-      <dt className="font-medium text-app-ink">{label}</dt>
-      <dd className={`font-medium ${highlight ? 'text-brand' : 'text-app-ink'}`}>{value}</dd>
+    <div className={`rounded-xl border border-stone-200 bg-white p-3 ${wide ? 'col-span-2' : ''}`}>
+      <dt className="text-xs font-black uppercase text-app-text">{label}</dt>
+      <dd className="mt-1 text-sm font-black text-app-ink">{value}</dd>
+    </div>
+  );
+}
+
+function StatusBox({ tone, value, label }) {
+  const toneClass = tone === 'green' ? 'text-[#166534] bg-[#DCFCE7]' : 'text-red-700 bg-red-50';
+  return (
+    <div className={`rounded-xl px-3 py-3 ${toneClass}`}>
+      <p className="text-2xl font-black">{value}</p>
+      <p className="mt-0.5 text-xs font-bold">{label}</p>
     </div>
   );
 }
@@ -134,18 +160,11 @@ function confidenceClass(score) {
   return 'bg-stone-100 text-stone-600';
 }
 
-function confidenceLabel(score) {
-  if (score >= 80) return 'High confidence';
-  if (score >= 60) return 'Medium confidence';
-  if (score > 0) return 'Low confidence';
-  return 'Needs review';
-}
-
-function shortConfidenceLabel(score) {
-  if (score >= 80) return 'High';
-  if (score >= 60) return 'Medium';
-  if (score > 0) return 'Low';
-  return 'Needs review';
+function publicStatusLabel(score) {
+  if (score >= 80) return 'Likely active';
+  if (score >= 60) return 'Auto-detected';
+  if (score > 0) return 'Check source';
+  return 'Needs confirmation';
 }
 
 function categoryLine(deal) {
@@ -171,6 +190,22 @@ function formatSourceHost(sourceUrl) {
   } catch {
     return sourceUrl;
   }
+}
+
+function cleanTitle(deal) {
+  const title = deal.title || '';
+  return title.replace(/\bStore Closing Store Closing\b/gi, 'Store Closing').replace(/\bStore Closing Sale\b/gi, 'Closing Sale');
+}
+
+function directionsUrl(deal) {
+  const query = [deal.address, deal.city, deal.province, deal.store_name].filter(Boolean).join(', ');
+  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query || deal.title || '')}`;
+}
+
+function confirmationRatio(active, expired) {
+  const total = active + expired;
+  if (!total) return 0;
+  return Math.max(8, Math.round((active / total) * 100));
 }
 
 function LineIcon({ name }) {
@@ -206,9 +241,9 @@ function ShareIcon() {
   );
 }
 
-function HeartIcon() {
+function HeartIcon({ filled = false }) {
   return (
-    <svg width="28" height="28" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+    <svg width="28" height="28" viewBox="0 0 24 24" fill={filled ? 'currentColor' : 'none'} aria-hidden="true">
       <path d="M20 8.5c0 5-8 10.5-8 10.5S4 13.5 4 8.5A4.2 4.2 0 0 1 12 6a4.2 4.2 0 0 1 8 2.5Z" stroke="currentColor" strokeWidth="2.1" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );
