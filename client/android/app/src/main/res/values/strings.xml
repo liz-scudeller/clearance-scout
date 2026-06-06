@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">SaleRadar</string>
+    <string name="title_activity_main">SaleRadar</string>
+    <string name="package_name">com.clearancescout.saleradar</string>
+    <string name="custom_url_scheme">com.clearancescout.saleradar</string>
+</resources>

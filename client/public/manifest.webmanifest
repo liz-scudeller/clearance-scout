@@ -1,0 +1,18 @@
+{
+  "name": "SaleRadar",
+  "short_name": "SaleRadar",
+  "description": "Find and report local closing sales, clearance deals, and warehouse sales near you.",
+  "start_url": "/dashboard",
+  "display": "standalone",
+  "background_color": "#f7f5ef",
+  "theme_color": "#172026",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "/icons/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

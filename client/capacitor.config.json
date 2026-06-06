@@ -1,0 +1,14 @@
+{
+  "appId": "com.clearancescout.saleradar",
+  "appName": "SaleRadar",
+  "webDir": "dist",
+  "server": {
+    "androidScheme": "https"
+  },
+  "plugins": {
+    "SplashScreen": {
+      "launchAutoHide": true,
+      "backgroundColor": "#172026"
+    }
+  }
+}

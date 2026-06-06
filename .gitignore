@@ -1,0 +1,24 @@
+node_modules/
+dist/
+.env
+.env.*
+!.env.example
+.DS_Store
+npm-debug.log*
+*.log
+
+# Android/Capacitor generated and local files
+.gradle/
+build/
+local.properties
+*.apk
+*.aab
+*.keystore
+*.jks
+*.iml
+.idea/
+capacitor-cordova-android-plugins/
+app/src/main/assets/public/
+app/src/main/assets/capacitor.config.json
+app/src/main/assets/capacitor.plugins.json
+app/src/main/res/xml/config.xml

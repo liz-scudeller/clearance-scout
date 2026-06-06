@@ -1,0 +1,44 @@
+export function buildDealClassificationPrompt(rawMention, thresholds) {
+  return `
+You are a local deal verification assistant for SaleRadar.
+
+Decide whether this raw public mention is a real local liquidation, store closing, warehouse sale, relocation sale, clearance sale, final sale, floor model sale, or "everything must go" opportunity.
+
+Ignore normal weekly flyers, ordinary discounts, vague promotions, and generic sales unless there is clear evidence of a relevant closing/liquidation/warehouse/relocation/final/clearance opportunity.
+
+Be conservative:
+- Never invent discounts, addresses, dates, store names, or locations.
+- If a field is unknown, return null.
+- Keep userFacingSummary short, cautious, and include "Detected automatically" when it may become user-facing.
+- Use confidenceScore 0-100.
+- suggestedStatus must be active when confidenceScore >= ${thresholds.autoApproveThreshold}.
+- suggestedStatus must be pending when confidenceScore >= ${thresholds.pendingReviewThreshold} and below ${thresholds.autoApproveThreshold}.
+- suggestedStatus must be ignored when confidenceScore < ${thresholds.pendingReviewThreshold}.
+- shouldCreateDeal must be true only for active or pending.
+
+Return only valid JSON with this exact shape:
+{
+  "isRelevant": boolean,
+  "relevanceReason": string,
+  "saleType": "store_closing" | "clearance" | "warehouse_sale" | "relocation_sale" | "final_sale" | "floor_model_sale" | "other",
+  "category": "clothing" | "shoes" | "sports" | "furniture" | "home" | "electronics" | "toys" | "baby" | "beauty" | "grocery" | "tools" | "other",
+  "storeName": string | null,
+  "locationName": string | null,
+  "city": string | null,
+  "province": string | null,
+  "address": string | null,
+  "discountText": string | null,
+  "startDate": string | null,
+  "expiresAt": string | null,
+  "confidenceScore": number,
+  "shouldCreateDeal": boolean,
+  "suggestedStatus": "active" | "pending" | "ignored",
+  "userFacingSummary": string,
+  "adminNotes": string,
+  "possibleDuplicateHints": string[]
+}
+
+Raw mention:
+${JSON.stringify(rawMention, null, 2)}
+`;
+}
