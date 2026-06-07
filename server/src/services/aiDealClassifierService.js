@@ -131,8 +131,6 @@ async function classifyWithRules(rawMention) {
 }
 
 function enforceMvpRequirements(rawMention, classification) {
-  if (!classification.shouldCreateDeal) return classification;
-
   const sourceType = rawMention.source_type || '';
   const requiresSourceDate = ['search', 'eventbrite_public_search'].includes(sourceType);
   const sourceDate = rawMention.source_published_at ? new Date(rawMention.source_published_at) : null;
@@ -143,12 +141,83 @@ function enforceMvpRequirements(rawMention, classification) {
     return ignoreClassification(classification, 'Ignored because the search result does not have a source date within the last 30 days.');
   }
 
+  const revivedClassification = reviveIncorrectRecencyRejection(rawMention, classification, sourceDate, cutoff);
+  if (!revivedClassification.shouldCreateDeal) return revivedClassification;
+
+  const inferredExpiredDate = classification.expiresAt || inferExpiredDate(rawMention, classification);
+  if (isExpiredDate(inferredExpiredDate)) {
+    return ignoreClassification(classification, `Ignored because the promotion already expired on ${inferredExpiredDate}.`);
+  }
+
   const hasSpecificLocation = Boolean(classification.storeName || classification.locationName || classification.address);
   if (!hasSpecificLocation) {
     return ignoreClassification(classification, 'Ignored because the mention does not identify a specific store, mall, or address.');
   }
 
-  return classification;
+  return revivedClassification;
+}
+
+function reviveIncorrectRecencyRejection(rawMention, classification, sourceDate, cutoff) {
+  if (classification.shouldCreateDeal) return classification;
+  if (!sourceDate || Number.isNaN(sourceDate.getTime()) || sourceDate < cutoff) return classification;
+
+  const notes = [classification.relevanceReason, classification.adminNotes].filter(Boolean).join(' ').toLowerCase();
+  const rejectedForRecency = notes.includes('older than 30') || notes.includes('outside the recency') || notes.includes('source date');
+  const hasSpecificLocation = Boolean(classification.storeName || classification.locationName || classification.address);
+  const hasRelevantSaleType = saleTypes.includes(classification.saleType) && classification.saleType !== 'other';
+
+  if (!rejectedForRecency || !hasSpecificLocation || !hasRelevantSaleType) return classification;
+
+  return {
+    ...classification,
+    isRelevant: true,
+    shouldCreateDeal: true,
+    suggestedStatus: 'pending',
+    confidenceScore: Math.max(classification.confidenceScore || 0, 70),
+    relevanceReason: `Source date ${rawMention.source_published_at} is within the 30-day window, and the mention identifies ${classification.storeName || classification.locationName}.`,
+    userFacingSummary: `Detected automatically: ${classification.storeName || classification.locationName} ${classification.saleType.replaceAll('_', ' ')} in ${classification.city || rawMention.city || 'Metro Vancouver'}.`,
+    adminNotes: [
+      classification.adminNotes,
+      `System override: source date ${rawMention.source_published_at} is within the 30-day window.`
+    ].filter(Boolean).join(' ')
+  };
+}
+
+function inferExpiredDate(rawMention, classification) {
+  const text = [
+    rawMention.title,
+    rawMention.snippet,
+    rawMention.raw_text,
+    classification.relevanceReason,
+    classification.userFacingSummary,
+    classification.adminNotes
+  ].filter(Boolean).join(' ');
+  const currentYear = new Date().getFullYear();
+  const rangeMatch = text.match(/\b(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\.?\s+(\d{1,2})\s*(?:-|–|to)\s*(\d{1,2})\b/i);
+  if (rangeMatch) {
+    return `${currentYear}-${String(monthNumber(rangeMatch[1])).padStart(2, '0')}-${String(rangeMatch[3]).padStart(2, '0')}`;
+  }
+
+  const singleMatch = text.match(/\b(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\.?\s+(\d{1,2})\b/i);
+  if (singleMatch) {
+    return `${currentYear}-${String(monthNumber(singleMatch[1])).padStart(2, '0')}-${String(singleMatch[2]).padStart(2, '0')}`;
+  }
+
+  return null;
+}
+
+function monthNumber(month) {
+  return ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'].findIndex((item) => month.toLowerCase().startsWith(item)) + 1;
+}
+
+function isExpiredDate(value) {
+  if (!value) return false;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return false;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  date.setHours(0, 0, 0, 0);
+  return date < today;
 }
 
 function ignoreClassification(classification, reason) {

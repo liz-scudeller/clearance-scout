@@ -137,6 +137,11 @@ export default function Admin() {
       }
 
       setMessageType('success');
+      if (found > 0 && saved === 0) {
+        setMessage(`Search finished. Found ${found} mentions, but all were already seen before. No new deals were added.`);
+        return;
+      }
+
       setMessage(`Search finished. Found ${found} mentions, saved ${saved} new ones. Valid AI-approved candidates are now in this approval list.`);
     } catch (error) {
       setMessageType('error');

@@ -153,10 +153,16 @@ export async function updateDealStatus(dealId, status, adminUserId = null) {
   if (status === 'active') {
     const { data: existingDeal, error: existingDealError } = await supabaseAdmin
       .from('deals')
-      .select('id,reported_by,detection_method,source_url,raw_mention_id')
+      .select('id,reported_by,detection_method,source_url,raw_mention_id,expires_at')
       .eq('id', dealId)
       .single();
     if (existingDealError) throw existingDealError;
+
+    if (isPastDate(existingDeal.expires_at)) {
+      const error = new Error('This deal is already expired and cannot be approved.');
+      error.statusCode = 400;
+      throw error;
+    }
 
     const isAutomated = !existingDeal.reported_by && ['automated_ai', 'scanner'].includes(existingDeal.detection_method);
     if (isAutomated && !existingDeal.source_url) {
@@ -179,6 +185,16 @@ export async function updateDealStatus(dealId, status, adminUserId = null) {
   if (error) throw error;
   await logAdminAction(adminUserId, 'deal', dealId, `status:${status}`, { status });
   return data;
+}
+
+function isPastDate(value) {
+  if (!value) return false;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return false;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  date.setHours(0, 0, 0, 0);
+  return date < today;
 }
 
 export async function updateDealDetails(dealId, body = {}, adminUserId = null) {
