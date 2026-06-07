@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useAuth } from '../hooks/useAuth';
+import { getMyAlertPreferences, updateMyAlertPreferences } from '../services/api';
 import { defaultAlertPreferences, getAlertPreferences, saveAlertPreferences } from '../services/alertPreferences';
 import { categories, labelize, saleTypes } from '../utils/options';
 
@@ -15,6 +16,22 @@ export default function Alerts() {
   useEffect(() => {
     setPreferences(getAlertPreferences(userId));
   }, [userId]);
+
+  useEffect(() => {
+    if (!user) return;
+    let active = true;
+    getMyAlertPreferences()
+      .then((data) => {
+        if (!active) return;
+        const nextPreferences = { ...defaultAlertPreferences, ...data.preferences };
+        setPreferences(nextPreferences);
+        saveAlertPreferences(userId, nextPreferences);
+      })
+      .catch((error) => setMessage(error.message));
+    return () => {
+      active = false;
+    };
+  }, [user, userId]);
 
   const summary = useMemo(() => {
     if (!preferences.enabled) return 'Alerts are paused.';
@@ -37,16 +54,26 @@ export default function Alerts() {
     });
   }
 
-  function savePreferences() {
+  async function savePreferences() {
     const nextPreferences = {
       ...defaultAlertPreferences,
       ...preferences,
       categories: preferences.categories.length ? preferences.categories : defaultAlertPreferences.categories,
       saleTypes: preferences.saleTypes.length ? preferences.saleTypes : defaultAlertPreferences.saleTypes
     };
-    saveAlertPreferences(userId, nextPreferences);
-    setPreferences(nextPreferences);
-    setMessage('Alert preferences saved.');
+    try {
+      if (user) {
+        const data = await updateMyAlertPreferences(nextPreferences);
+        saveAlertPreferences(userId, data.preferences);
+        setPreferences(data.preferences);
+      } else {
+        saveAlertPreferences(userId, nextPreferences);
+        setPreferences(nextPreferences);
+      }
+      setMessage('Alert preferences saved.');
+    } catch (error) {
+      setMessage(error.message);
+    }
   }
 
   return (

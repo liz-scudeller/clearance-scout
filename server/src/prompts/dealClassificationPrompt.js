@@ -8,13 +8,15 @@ Ignore normal weekly flyers, ordinary discounts, vague promotions, and generic s
 
 Be conservative:
 - Never invent discounts, addresses, dates, store names, or locations.
+- For search results, the source must be from the last 30 days. If source_published_at is missing or older than 30 days, set shouldCreateDeal false and suggestedStatus ignored.
+- Do not create a deal when the store/business name is unknown and there is no specific mall/location/address. A generic "store closing sale" without an identifiable store is not actionable.
+- Do not create a deal from old articles about stores that closed years ago, even if the article mentions a closing sale.
 - If the raw mention includes a real image URL for the deal/store/source, return it as imageUrl. Do not invent image URLs.
 - If no real image URL exists, return a short imageDescription that describes the likely visual category for a generic deal image.
 - If a field is unknown, return null.
 - Keep userFacingSummary short, cautious, and include "Detected automatically" when it may become user-facing.
 - Use confidenceScore 0-100.
-- suggestedStatus must be active when confidenceScore >= ${thresholds.autoApproveThreshold}.
-- suggestedStatus must be pending when confidenceScore >= ${thresholds.pendingReviewThreshold} and below ${thresholds.autoApproveThreshold}.
+- suggestedStatus should be pending for every relevant deal; admins approve deals before they become active.
 - suggestedStatus must be ignored when confidenceScore < ${thresholds.pendingReviewThreshold}.
 - shouldCreateDeal must be true only for active or pending.
 

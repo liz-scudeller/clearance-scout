@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import DealCard from '../components/DealCard';
 import { useAuth } from '../hooks/useAuth';
-import { getDeals } from '../services/api';
+import { getDeals, getMySavedDealIds } from '../services/api';
 import { getSavedDealIds, subscribeToSavedDeals } from '../services/savedDeals';
 
 export default function Saved() {
@@ -30,6 +30,19 @@ export default function Saved() {
     setSavedIds(getSavedDealIds(userId));
     return subscribeToSavedDeals(() => setSavedIds(getSavedDealIds(userId)));
   }, [userId]);
+
+  useEffect(() => {
+    if (!user) return;
+    let active = true;
+    getMySavedDealIds()
+      .then((data) => {
+        if (active) setSavedIds(data.dealIds || []);
+      })
+      .catch((err) => setError(err.message));
+    return () => {
+      active = false;
+    };
+  }, [user]);
 
   useEffect(() => {
     loadDeals();

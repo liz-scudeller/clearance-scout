@@ -18,7 +18,7 @@ export async function classifyRawDealMention(rawMention) {
   }
 
   try {
-    const classification = await classifyWithOpenAi(rawMention);
+    const classification = enforceMvpRequirements(rawMention, await classifyWithOpenAi(rawMention));
     await saveAiClassification(rawMention.id, classification);
 
     if (!classification.shouldCreateDeal || classification.suggestedStatus === 'ignored') {
@@ -98,7 +98,7 @@ async function classifyWithOpenAi(rawMention) {
 
 async function classifyWithRules(rawMention) {
   const ruleResult = classifyMention(rawMention);
-  const classification = validateClassification({
+  const classification = enforceMvpRequirements(rawMention, validateClassification({
     isRelevant: ruleResult.shouldCreateDeal,
     relevanceReason: ruleResult.shouldCreateDeal ? 'Matched rule-based scanner keywords.' : 'No strong scanner keywords found.',
     saleType: ruleResult.saleType,
@@ -115,11 +115,11 @@ async function classifyWithRules(rawMention) {
     imageDescription: null,
     confidenceScore: ruleResult.confidenceScore,
     shouldCreateDeal: ruleResult.shouldCreateDeal,
-    suggestedStatus: ruleResult.confidenceScore >= env.aiAutoApproveThreshold ? 'active' : ruleResult.confidenceScore >= env.aiPendingReviewThreshold ? 'pending' : 'ignored',
+    suggestedStatus: ruleResult.confidenceScore >= env.aiPendingReviewThreshold ? 'pending' : 'ignored',
     userFacingSummary: ruleResult.shouldCreateDeal ? 'Detected automatically from a public source. Please confirm with the store before visiting.' : '',
     adminNotes: 'AI disabled; classified with rule-based fallback.',
     possibleDuplicateHints: [rawMention.title].filter(Boolean)
-  });
+  }));
 
   await saveAiClassification(rawMention.id, classification);
   if (classification.shouldCreateDeal && classification.suggestedStatus !== 'ignored') {
@@ -128,6 +128,38 @@ async function classifyWithRules(rawMention) {
   }
   await markIgnoredIfNeeded(rawMention.id, classification);
   return classification;
+}
+
+function enforceMvpRequirements(rawMention, classification) {
+  if (!classification.shouldCreateDeal) return classification;
+
+  const sourceType = rawMention.source_type || '';
+  const requiresSourceDate = ['search', 'eventbrite_public_search'].includes(sourceType);
+  const sourceDate = rawMention.source_published_at ? new Date(rawMention.source_published_at) : null;
+  const cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - 30);
+
+  if (requiresSourceDate && (!sourceDate || Number.isNaN(sourceDate.getTime()) || sourceDate < cutoff)) {
+    return ignoreClassification(classification, 'Ignored because the search result does not have a source date within the last 30 days.');
+  }
+
+  const hasSpecificLocation = Boolean(classification.storeName || classification.locationName || classification.address);
+  if (!hasSpecificLocation) {
+    return ignoreClassification(classification, 'Ignored because the mention does not identify a specific store, mall, or address.');
+  }
+
+  return classification;
+}
+
+function ignoreClassification(classification, reason) {
+  return {
+    ...classification,
+    isRelevant: false,
+    shouldCreateDeal: false,
+    suggestedStatus: 'ignored',
+    confidenceScore: Math.min(classification.confidenceScore || 0, 40),
+    adminNotes: [classification.adminNotes, reason].filter(Boolean).join(' ')
+  };
 }
 
 function validateRawMention(rawMention) {
@@ -150,13 +182,14 @@ function parseJson(value) {
 
 function validateClassification(value) {
   const confidenceScore = clamp(Number(value.confidenceScore || 0), 0, 100);
-  const suggestedStatus = statuses.includes(value.suggestedStatus)
+  const rawSuggestedStatus = statuses.includes(value.suggestedStatus)
     ? value.suggestedStatus
     : confidenceScore >= env.aiAutoApproveThreshold
       ? 'active'
       : confidenceScore >= env.aiPendingReviewThreshold
         ? 'pending'
         : 'ignored';
+  const suggestedStatus = rawSuggestedStatus === 'ignored' ? 'ignored' : 'pending';
 
   return {
     isRelevant: Boolean(value.isRelevant),
@@ -211,15 +244,18 @@ async function markIgnoredIfNeeded(id, classification) {
 
 async function createDealFromAiClassification(rawMention, classification) {
   const deal = buildDealFromAiClassification(rawMention, classification);
-  const { data, error } = await supabaseAdmin
-    .from('deals')
-    .insert(deal)
-    .select('id')
-    .single();
+  const { data, error } = await insertDeal(deal, 'id');
   if (error) throw error;
 
   await markMentionConverted(rawMention.id, data.id, classification);
   return data.id;
+}
+
+async function insertDeal(deal, select = '*') {
+  const result = await supabaseAdmin.from('deals').insert(deal).select(select).single();
+  if (!String(result.error?.message || '').includes('source_published_at')) return result;
+  const { source_published_at, ...fallbackDeal } = deal;
+  return supabaseAdmin.from('deals').insert(fallbackDeal).select(select).single();
 }
 
 async function markMentionConverted(id, dealId, classification) {

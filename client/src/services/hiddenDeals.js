@@ -33,6 +33,13 @@ export function hideDeal(userId, dealId) {
   return nextIds;
 }
 
+export function unhideDeal(userId, dealId) {
+  const ids = readIds(userId);
+  const nextIds = ids.filter((id) => id !== dealId);
+  writeIds(userId, nextIds);
+  return nextIds;
+}
+
 export function subscribeToHiddenDeals(callback) {
   window.addEventListener(hiddenEventName, callback);
   window.addEventListener('storage', callback);
@@ -40,4 +47,8 @@ export function subscribeToHiddenDeals(callback) {
     window.removeEventListener(hiddenEventName, callback);
     window.removeEventListener('storage', callback);
   };
+}
+
+export function notifyHiddenDealsChanged() {
+  window.dispatchEvent(new CustomEvent(hiddenEventName));
 }

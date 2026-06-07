@@ -5,6 +5,7 @@ import {
   getPendingDeals,
   getRawDealMentions,
   getScannerRuns,
+  patchDealDetails,
   patchDealStatus,
   patchIgnoreRawMention,
   postConvertRawMention,
@@ -21,6 +22,7 @@ router.get('/me', getAdminMe);
 router.use(requireAdmin);
 router.get('/deals/pending', getPendingDeals);
 router.patch('/deals/:id/status', patchDealStatus);
+router.patch('/deals/:id', patchDealDetails);
 router.delete('/deals/:id', deleteAdminDeal);
 router.post('/scanners/run', postRunScanners);
 router.get('/scanners/runs', getScannerRuns);

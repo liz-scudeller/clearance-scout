@@ -15,7 +15,7 @@ const initialForm = {
   mallName: '',
   sourceUrl: '',
   expiresAt: '',
-  category: 'other',
+  categories: ['other'],
   sourceType: 'user_report'
 };
 
@@ -56,6 +56,22 @@ export default function DealForm() {
   function updateImage(file) {
     setImage(file);
     setImagePreview(file ? URL.createObjectURL(file) : '');
+    setError('');
+  }
+
+  function toggleCategory(category) {
+    setForm((current) => {
+      const withoutOther = current.categories.filter((item) => item !== 'other');
+      const currentCategories = category === 'other' ? current.categories : withoutOther;
+      const selected = currentCategories.includes(category)
+        ? currentCategories.filter((item) => item !== category)
+        : [...currentCategories, category];
+
+      return {
+        ...current,
+        categories: selected.length ? selected : ['other']
+      };
+    });
     setError('');
   }
 
@@ -103,7 +119,7 @@ export default function DealForm() {
       ...form,
       title,
       address: form.address || 'Address to verify',
-      category: form.category || 'other',
+      category: form.categories.find((category) => category !== 'other') || form.categories[0] || 'other',
       discountText: form.discountText || 'Deal details to verify',
       description,
       sourceType: 'user_report',
@@ -180,10 +196,23 @@ export default function DealForm() {
               <Field label="Source link" name="sourceUrl" value={form.sourceUrl} onChange={updateField} placeholder="https://..." type="url" />
               <Field label="End date" name="expiresAt" value={form.expiresAt} onChange={updateField} type="date" />
               <div>
-                <label className="mb-2 block text-sm font-black text-app-ink">Category</label>
-                <select name="category" value={form.category} onChange={updateField} className={inputClass}>
-                  {categories.map((category) => <option key={category} value={category}>{labelize(category)}</option>)}
-                </select>
+                <p className="mb-2 block text-sm font-black text-app-ink">Categories</p>
+                <div className="flex flex-wrap gap-2">
+                  {categories.map((category) => (
+                    <button
+                      key={category}
+                      type="button"
+                      onClick={() => toggleCategory(category)}
+                      className={`rounded-full border px-3 py-2 text-sm font-black ${
+                        form.categories.includes(category)
+                          ? 'border-brand bg-brand text-white'
+                          : 'border-stone-200 bg-white text-app-ink'
+                      }`}
+                    >
+                      {labelize(category)}
+                    </button>
+                  ))}
+                </div>
               </div>
               <label className="block">
                 <span className="mb-2 block text-sm font-black text-app-ink">Notes</span>
@@ -248,6 +277,7 @@ function Field({ label, required = false, ...props }) {
 function buildDescription(form) {
   return [
     form.description,
+    form.categories?.length ? `Categories: ${form.categories.map(labelize).join(', ')}` : '',
     form.discountText,
     form.mallName ? `Mall / shopping centre: ${form.mallName}` : '',
     form.sourceUrl ? `Source: ${form.sourceUrl}` : ''

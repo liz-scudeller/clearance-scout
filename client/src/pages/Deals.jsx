@@ -4,9 +4,9 @@ import L from 'leaflet';
 import DealCard from '../components/DealCard';
 import { useAdminStatus } from '../hooks/useAdminStatus';
 import { useAuth } from '../hooks/useAuth';
-import { getDeals } from '../services/api';
-import { getHiddenDealIds, subscribeToHiddenDeals } from '../services/hiddenDeals';
-import { getUserProfile, subscribeToUserProfile } from '../services/userProfile';
+import { getDeals, getMyHiddenDealIds, getMyProfile, unhideMyDeal } from '../services/api';
+import { getHiddenDealIds, subscribeToHiddenDeals, unhideDeal } from '../services/hiddenDeals';
+import { getUserProfile, saveUserProfile, subscribeToUserProfile } from '../services/userProfile';
 import { labelize } from '../utils/options';
 
 const quickChips = [
@@ -40,6 +40,8 @@ export default function Deals() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [profile, setProfile] = useState(() => getUserProfile(userId));
   const [hiddenDealIds, setHiddenDealIds] = useState(() => getHiddenDealIds(userId));
+  const [undoHiddenDeal, setUndoHiddenDeal] = useState(null);
+  const undoTimerRef = useRef(null);
 
   async function loadDeals() {
     setLoading(true);
@@ -66,15 +68,45 @@ export default function Deals() {
   }, [userId]);
 
   useEffect(() => {
+    if (!user) return;
+    let active = true;
+    getMyProfile()
+      .then((data) => {
+        if (!active) return;
+        setProfile(data.profile);
+        saveUserProfile(userId, data.profile);
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, [user, userId]);
+
+  useEffect(() => {
     setHiddenDealIds(getHiddenDealIds(userId));
     return subscribeToHiddenDeals(() => setHiddenDealIds(getHiddenDealIds(userId)));
   }, [userId]);
+
+  useEffect(() => {
+    if (!user) return;
+    let active = true;
+    getMyHiddenDealIds()
+      .then((data) => {
+        if (active) setHiddenDealIds(data.dealIds || []);
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, [user]);
 
   useEffect(() => {
     if (profile.city && !filters.city) {
       setFilters((current) => ({ ...current, city: profile.city }));
     }
   }, [profile.city]);
+
+  useEffect(() => () => window.clearTimeout(undoTimerRef.current), []);
 
   const visibleDeals = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -98,6 +130,30 @@ export default function Deals() {
       setSearchParams({ view: 'map' });
     } else {
       setSearchParams({});
+    }
+  }
+
+  function handleHidden(dealId) {
+    const deal = deals.find((item) => item.id === dealId);
+    setHiddenDealIds(getHiddenDealIds(userId));
+    setUndoHiddenDeal(deal || { id: dealId, title: 'Deal' });
+
+    window.clearTimeout(undoTimerRef.current);
+    undoTimerRef.current = window.setTimeout(() => setUndoHiddenDeal(null), 6000);
+  }
+
+  async function undoNotInterested() {
+    if (!undoHiddenDeal) return;
+    const dealId = undoHiddenDeal.id;
+    window.clearTimeout(undoTimerRef.current);
+    setUndoHiddenDeal(null);
+    setHiddenDealIds((current) => current.filter((id) => id !== dealId));
+    unhideDeal(userId, dealId);
+    if (!user) return;
+    try {
+      await unhideMyDeal(dealId);
+    } catch (error) {
+      setError(error.message);
     }
   }
 
@@ -203,7 +259,7 @@ export default function Deals() {
       ) : (
         <section className="mt-2">
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-            {visibleDeals.map((deal) => <DealCard key={deal.id} deal={deal} onConfirmed={loadDeals} onHidden={() => setHiddenDealIds(getHiddenDealIds(userId))} />)}
+            {visibleDeals.map((deal) => <DealCard key={deal.id} deal={deal} onConfirmed={loadDeals} onHidden={handleHidden} />)}
           </div>
           {!visibleDeals.length && <p className="text-sm text-stone-600">No deals match these filters.</p>}
           <div className="mt-5 flex items-center justify-between gap-3 rounded-2xl border border-[#FED7AA] bg-[#FFF1E8] p-4">
@@ -217,6 +273,18 @@ export default function Deals() {
             <Link to="/alerts" className="shrink-0 rounded-xl border border-deal-orange px-4 py-2 text-sm font-black text-deal-orange">Enable</Link>
           </div>
         </section>
+      )}
+
+      {undoHiddenDeal && (
+        <div className="fixed bottom-24 left-4 right-4 z-50 mx-auto flex max-w-md items-center justify-between gap-3 rounded-2xl bg-app-ink px-4 py-3 text-white shadow-2xl md:bottom-6">
+          <p className="min-w-0 text-sm font-semibold">
+            <span className="block truncate">{undoHiddenDeal.title}</span>
+            <span className="text-white/70">Marked not interested</span>
+          </p>
+          <button onClick={undoNotInterested} className="shrink-0 rounded-xl bg-white px-4 py-2 text-sm font-black text-brand">
+            Undo
+          </button>
+        </div>
       )}
     </main>
   );
@@ -344,8 +412,12 @@ function MapScreen({ deals, loading, error, search, setSearch, setView }) {
   const mapRef = useRef(null);
   const mapNodeRef = useRef(null);
   const markerLayerRef = useRef(null);
+  const cardStartXRef = useRef(0);
+  const cardStartYRef = useRef(0);
   const [selectedDeal, setSelectedDeal] = useState(deals[0] || null);
   const [mapMoved, setMapMoved] = useState(false);
+  const [cardDragX, setCardDragX] = useState(0);
+  const [cardDragging, setCardDragging] = useState(false);
 
   useEffect(() => {
     if (!mapNodeRef.current || mapRef.current) return;
@@ -376,7 +448,10 @@ function MapScreen({ deals, loading, error, search, setSearch, setView }) {
 
   useEffect(() => {
     if (!deals.length) return;
-    setSelectedDeal((current) => current || deals[0]);
+    setSelectedDeal((current) => {
+      if (current && deals.some((deal) => deal.id === current.id)) return current;
+      return deals[0];
+    });
   }, [deals]);
 
   useEffect(() => {
@@ -394,12 +469,54 @@ function MapScreen({ deals, loading, error, search, setSearch, setView }) {
       marker.addTo(layer);
     });
 
-    if (bounds.length > 1) {
-      map.fitBounds(bounds, { paddingTopLeft: [40, 110], paddingBottomRight: [40, 260], maxZoom: 13 });
+    if (bounds.length > 1 && !selectedDeal) {
+      map.fitBounds(bounds, { paddingTopLeft: [40, 130], paddingBottomRight: [40, 340], maxZoom: 13 });
     } else if (bounds.length === 1) {
       map.setView(bounds[0], 13);
     }
   }, [deals, selectedDeal]);
+
+  function selectDealByStep(step) {
+    if (!deals.length) return;
+    const currentIndex = Math.max(0, deals.findIndex((deal) => deal.id === selectedDeal?.id));
+    const nextIndex = (currentIndex + step + deals.length) % deals.length;
+    const nextDeal = deals[nextIndex];
+    setSelectedDeal(nextDeal);
+    setCardDragX(0);
+    if (mapRef.current) {
+      mapRef.current.panTo(dealCoords(nextDeal, nextIndex), { animate: true, duration: 0.25 });
+    }
+  }
+
+  function handleCardPointerDown(event) {
+    if (event.pointerType === 'mouse' && event.button !== 0) return;
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+    cardStartXRef.current = event.clientX;
+    cardStartYRef.current = event.clientY;
+    setCardDragging(true);
+  }
+
+  function handleCardPointerMove(event) {
+    if (!cardDragging) return;
+    const nextX = event.clientX - cardStartXRef.current;
+    const nextY = event.clientY - cardStartYRef.current;
+    if (Math.abs(nextY) > Math.abs(nextX) && Math.abs(nextY) > 24) return;
+    setCardDragX(Math.max(-120, Math.min(120, nextX)));
+  }
+
+  function handleCardPointerUp() {
+    if (!cardDragging) return;
+    setCardDragging(false);
+    if (cardDragX <= -70) {
+      selectDealByStep(1);
+      return;
+    }
+    if (cardDragX >= 70) {
+      selectDealByStep(-1);
+      return;
+    }
+    setCardDragX(0);
+  }
 
   function useMyLocation() {
     if (!navigator.geolocation || !mapRef.current) return;
@@ -417,8 +534,8 @@ function MapScreen({ deals, loading, error, search, setSearch, setView }) {
   }
 
   return (
-    <main className="relative min-h-screen overflow-hidden bg-[#E7E2D9] pb-20 md:mx-auto md:max-w-6xl md:px-4 md:py-8">
-      <section className="relative h-[calc(100vh-82px)] min-h-[590px] overflow-hidden md:h-[760px] md:rounded-[24px] md:border md:border-stone-200 md:shadow-2xl">
+    <main className="fixed inset-0 overflow-hidden bg-white md:relative md:mx-auto md:min-h-screen md:max-w-6xl md:bg-app-paper md:px-4 md:py-8">
+      <section className="relative h-full w-full overflow-hidden md:h-[760px] md:rounded-[24px] md:border md:border-stone-200 md:shadow-2xl">
         <div ref={mapNodeRef} className="absolute inset-0 z-0" />
 
         <div className="absolute left-4 right-4 top-10 z-20 flex items-center gap-3 md:left-12 md:right-12">
@@ -448,45 +565,130 @@ function MapScreen({ deals, loading, error, search, setSearch, setView }) {
           </button>
         )}
 
-        <button onClick={useMyLocation} aria-label="Use my location" className="absolute bottom-[178px] right-4 z-20 grid h-12 w-12 place-items-center rounded-full bg-white text-app-ink shadow-[0_10px_30px_rgba(11,31,58,.15)]">
+        <button onClick={useMyLocation} aria-label="Use my location" className="absolute bottom-[225px] right-4 z-20 grid h-12 w-12 place-items-center rounded-full bg-white text-app-ink shadow-[0_10px_30px_rgba(11,31,58,.15)]">
           <LocationArrowIcon />
         </button>
 
         {error && <p className="absolute left-5 right-5 top-36 z-30 rounded-xl bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
         {loading && <p className="absolute left-5 right-5 top-36 z-30 rounded-xl bg-white px-3 py-2 text-sm font-bold text-brand-700 shadow">Loading map deals...</p>}
 
-        {selectedDeal && <MapDealCard deal={selectedDeal} setView={setView} />}
+        {selectedDeal && (
+<MapDealCard
+  deal={selectedDeal}
+  dealsCount={deals.length}
+  currentIndex={Math.max(0, deals.findIndex((item) => item.id === selectedDeal?.id))}
+  dragX={cardDragX}
+  dragging={cardDragging}
+  onPointerDown={handleCardPointerDown}
+  onPointerMove={handleCardPointerMove}
+  onPointerUp={handleCardPointerUp}
+  setView={setView}
+/>
+        )}
       </section>
     </main>
   );
 }
 
-function MapDealCard({ deal, setView }) {
+function MapDealCard({
+  deal,
+  dealsCount,
+  currentIndex,
+  dragX,
+  dragging,
+  onPointerDown,
+  onPointerMove,
+  onPointerUp,
+  setView
+}) {
+    const hint = dragX < -28 ? 'Next deal' : dragX > 28 ? 'Previous deal' : '';
+  const showNavigation = dealsCount > 1;
+
   return (
-    <article className="absolute bottom-4 left-4 right-4 z-30 rounded-[20px] bg-white p-3.5 shadow-[0_15px_38px_rgba(11,31,58,.18)] md:left-12 md:right-12">
-      <div className="grid grid-cols-[1fr_92px] gap-3">
-        <div>
-          <div className="flex items-center gap-2">
-            <span className={`rounded-md px-2 py-1 text-[10px] font-black uppercase text-white ${saleBadgeClass(deal.sale_type)}`}>{labelize(deal.sale_type)}</span>
-            <span className="text-xs font-black text-[#2563EB]">1.8 km</span>
-          </div>
-          <h2 className="mt-2 line-clamp-2 text-lg font-black leading-tight text-app-ink">{cleanMapTitle(deal)}</h2>
-          <p className="mt-1 line-clamp-1 text-sm font-medium text-app-text">{deal.store_name || 'Local source'}{deal.city ? ` · ${deal.city}` : ''}</p>
-          <p className="mt-2 text-lg font-black text-deal-orange">{deal.discount_text || 'Deal details available'}</p>
-          <p className="mt-1 text-xs font-semibold text-app-text">{deal.active_confirmation_count || 0} confirmed active · {formatUpdated(deal.updated_at || deal.created_at)}</p>
+    <article
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={onPointerUp}
+      onPointerCancel={onPointerUp}
+      className={`absolute bottom-20 left-3 right-3 z-30 touch-pan-y rounded-[22px] bg-white p-3 shadow-[0_14px_34px_rgba(11,31,58,.18)] md:left-12 md:right-12 ${dragging ? '' : 'transition-transform duration-200 ease-out'}`}
+      style={{ transform: `translateX(${dragX}px) rotate(${dragX / 44}deg)` }}
+    >
+      {hint && (
+        <div className="absolute -top-10 left-1/2 -translate-x-1/2 rounded-full bg-brand px-4 py-2 text-xs font-black text-white shadow-lg">
+          {hint}
         </div>
-        <div className="h-24 overflow-hidden rounded-xl bg-stone-100">
+      )}
+
+      <div className="flex gap-3">
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex min-w-0 items-center gap-2">
+              <span className={`shrink-0 rounded-md px-2 py-1 text-[10px] font-black uppercase text-white ${saleBadgeClass(deal.sale_type)}`}>
+                {labelize(deal.sale_type)}
+              </span>
+              <span className="shrink-0 text-xs font-black text-[#2563EB]">1.8 km</span>
+            </div>
+
+          </div>
+
+          <h2 className="mt-1.5 line-clamp-1 text-base font-black leading-tight text-app-ink">
+            {cleanMapTitle(deal)}
+          </h2>
+          <p className="mt-0.5 line-clamp-1 text-xs font-semibold text-app-text">
+            {deal.store_name || 'Local source'}{deal.city ? ` · ${deal.city}` : ''}
+          </p>
+          <p className="mt-1 text-sm font-black text-deal-orange">
+            {deal.discount_text || 'Deal details to verify'}
+          </p>
+          <p className="mt-0.5 text-[11px] font-semibold text-app-text">
+            {deal.active_confirmation_count || 0} confirmed active · {formatUpdated(deal.updated_at || deal.created_at)}
+          </p>
+        </div>
+
+        <div className="h-20 w-20 shrink-0 overflow-hidden rounded-xl bg-stone-100">
           {deal.image_url ? (
             <img src={deal.image_url} alt={deal.title} className="h-full w-full object-cover" />
           ) : (
-            <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-brand-700 to-brand-950 text-sm font-black text-white">SALE</div>
+            <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-brand-700 to-brand-950 text-xs font-black text-white">
+              SALE
+            </div>
           )}
         </div>
       </div>
+
+      {showNavigation && (
+        <div className="mt-2 flex items-center justify-center gap-1.5">
+          {Array.from({ length: Math.min(dealsCount, 5) }).map((_, index) => {
+            const activeDot = dealsCount <= 5 ? index === currentIndex : index === Math.min(currentIndex, 4);
+            return (
+              <span
+                key={index}
+                className={`h-1.5 rounded-full transition-all ${activeDot ? 'w-5 bg-brand' : 'w-1.5 bg-stone-300'}`}
+              />
+            );
+          })}
+        </div>
+      )}
+
       <div className="mt-3 grid grid-cols-2 gap-2">
-        <a href={directionsUrl(deal)} target="_blank" rel="noreferrer" className="rounded-xl bg-brand px-4 py-3 text-center text-sm font-black text-white shadow-sm">Directions</a>
-        <Link to={`/deals/${deal.id}`} className="rounded-xl border border-stone-200 bg-white px-4 py-3 text-center text-sm font-black text-app-ink">Details</Link>
+        <a
+          onPointerDown={(event) => event.stopPropagation()}
+          href={directionsUrl(deal)}
+          target="_blank"
+          rel="noreferrer"
+          className="rounded-xl bg-brand px-3 py-2.5 text-center text-sm font-black text-white shadow-sm"
+        >
+          Directions
+        </a>
+        <Link
+          onPointerDown={(event) => event.stopPropagation()}
+          to={`/deals/${deal.id}`}
+          className="rounded-xl border border-stone-200 bg-white px-3 py-2.5 text-center text-sm font-black text-app-ink"
+        >
+          Details
+        </Link>
       </div>
+
       <button onClick={() => setView('list')} className="sr-only">Back to List</button>
     </article>
   );

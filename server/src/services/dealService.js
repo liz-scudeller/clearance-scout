@@ -3,6 +3,23 @@ import { env } from '../config/env.js';
 import { supabaseAdmin } from '../config/supabase.js';
 
 const allowedStatuses = ['pending', 'active', 'rejected', 'expired', 'possibly_expired'];
+const editableDealFields = {
+  title: 'title',
+  storeName: 'store_name',
+  address: 'address',
+  city: 'city',
+  province: 'province',
+  postalCode: 'postal_code',
+  category: 'category',
+  saleType: 'sale_type',
+  discountText: 'discount_text',
+  description: 'description',
+  sourceType: 'source_type',
+  sourceUrl: 'source_url',
+  imageUrl: 'image_url',
+  startDate: 'start_date',
+  expiresAt: 'expires_at'
+};
 
 export async function listDeals(filters = {}) {
   let query = supabaseAdmin.from('deals_with_confirmation_counts').select('*').order('created_at', { ascending: false });
@@ -60,20 +77,52 @@ export async function addConfirmation(dealId, userId, confirmationStatus) {
   return getDealById(dealId);
 }
 
-export async function listPendingDeals() {
-  const { data, error } = await supabaseAdmin
-    .from('deals')
-    .select(`
+export async function listPendingDeals(filters = {}) {
+  const selectWithSourceDate = `
       *,
       profiles:reported_by(full_name,email),
-      raw_deal_mentions:raw_mention_id(title,snippet,raw_text,source_url,source_type,detected_keywords,classification_result,confidence_score)
-    `)
+      raw_deal_mentions:raw_mention_id(title,snippet,raw_text,source_url,source_type,source_published_at,detected_keywords,classification_result,confidence_score,deal_sources(name))
+    `;
+  const selectWithoutSourceDate = `
+      *,
+      profiles:reported_by(full_name,email),
+      raw_deal_mentions:raw_mention_id(title,snippet,raw_text,source_url,source_type,detected_keywords,classification_result,confidence_score,deal_sources(name))
+    `;
+
+  const runQuery = (selectClause) => {
+    let query = supabaseAdmin
+      .from('deals')
+      .select(selectClause)
     .eq('status', 'pending')
     .order('created_at', { ascending: true });
+
+    if (filters.origin === 'user') query = query.not('reported_by', 'is', null);
+    if (filters.origin === 'internal') query = query.eq('detection_method', 'scanner');
+    if (filters.origin === 'ai') query = query.eq('detection_method', 'automated_ai');
+    if (filters.city) query = query.ilike('city', `%${filters.city}%`);
+
+    return query;
+  };
+
+  let { data, error } = await runQuery(selectWithSourceDate);
+  if (String(error?.message || '').includes('source_published_at')) {
+    ({ data, error } = await runQuery(selectWithoutSourceDate));
+  }
   if (error) throw error;
 
-  const dealIds = data.map((deal) => deal.id);
-  if (!dealIds.length) return data;
+  const search = String(filters.search || '').trim().toLowerCase();
+  let filteredData = search
+    ? data.filter((deal) => [deal.title, deal.store_name, deal.city, deal.discount_text, deal.profiles?.email, deal.raw_deal_mentions?.snippet].filter(Boolean).join(' ').toLowerCase().includes(search))
+    : data;
+  if (filters.missingSource === 'true') {
+    filteredData = filteredData.filter((deal) => {
+      const isAutomated = !deal.reported_by && ['automated_ai', 'scanner'].includes(deal.detection_method);
+      return isAutomated && !(deal.source_url || deal.raw_deal_mentions?.source_url);
+    });
+  }
+
+  const dealIds = filteredData.map((deal) => deal.id);
+  if (!dealIds.length) return filteredData;
 
   const { data: confirmations, error: confirmationError } = await supabaseAdmin
     .from('deal_confirmations')
@@ -81,7 +130,7 @@ export async function listPendingDeals() {
     .in('deal_id', dealIds);
   if (confirmationError) throw confirmationError;
 
-  return data.map((deal) => {
+  return filteredData.map((deal) => {
     const dealConfirmations = confirmations.filter((item) => item.deal_id === deal.id);
     const uniqueUsers = new Set(dealConfirmations.map((item) => item.user_id));
     return {
@@ -94,7 +143,7 @@ export async function listPendingDeals() {
   });
 }
 
-export async function updateDealStatus(dealId, status) {
+export async function updateDealStatus(dealId, status, adminUserId = null) {
   if (!allowedStatuses.includes(status)) {
     const error = new Error('Invalid status');
     error.statusCode = 400;
@@ -128,10 +177,32 @@ export async function updateDealStatus(dealId, status) {
 
   const { data, error } = await supabaseAdmin.from('deals').update({ status, updated_at: new Date().toISOString() }).eq('id', dealId).select('*').single();
   if (error) throw error;
+  await logAdminAction(adminUserId, 'deal', dealId, `status:${status}`, { status });
   return data;
 }
 
-export async function deleteDeal(dealId) {
+export async function updateDealDetails(dealId, body = {}, adminUserId = null) {
+  const update = {};
+  Object.entries(editableDealFields).forEach(([bodyKey, dbKey]) => {
+    if (Object.prototype.hasOwnProperty.call(body, bodyKey)) {
+      update[dbKey] = body[bodyKey] === '' ? null : body[bodyKey];
+    }
+  });
+
+  if (!Object.keys(update).length) {
+    const error = new Error('No editable fields provided.');
+    error.statusCode = 400;
+    throw error;
+  }
+
+  update.updated_at = new Date().toISOString();
+  const { data, error } = await supabaseAdmin.from('deals').update(update).eq('id', dealId).select('*').single();
+  if (error) throw error;
+  await logAdminAction(adminUserId, 'deal', dealId, 'edit', { fields: Object.keys(update).filter((key) => key !== 'updated_at') });
+  return data;
+}
+
+export async function deleteDeal(dealId, adminUserId = null) {
   const { error: confirmationError } = await supabaseAdmin
     .from('deal_confirmations')
     .delete()
@@ -145,7 +216,19 @@ export async function deleteDeal(dealId) {
     .select('id,title')
     .single();
   if (error) throw error;
+  await logAdminAction(adminUserId, 'deal', dealId, 'delete', { title: data.title });
   return data;
+}
+
+async function logAdminAction(adminUserId, entityType, entityId, action, details = {}) {
+  const { error } = await supabaseAdmin.from('admin_audit_log').insert({
+    admin_user_id: adminUserId,
+    entity_type: entityType,
+    entity_id: entityId,
+    action,
+    details
+  });
+  if (error && !String(error.message || '').includes('admin_audit_log')) throw error;
 }
 
 async function uploadDealImage(file) {

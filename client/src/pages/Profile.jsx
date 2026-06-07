@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
+import { getMyProfile, updateMyProfile } from '../services/api';
 import { getUserProfile, saveUserProfile } from '../services/userProfile';
 
 export default function Profile() {
@@ -17,6 +18,25 @@ export default function Profile() {
     });
   }, [userId, user]);
 
+  useEffect(() => {
+    if (!user) return;
+    let active = true;
+    getMyProfile()
+      .then((data) => {
+        if (!active) return;
+        const nextProfile = {
+          ...data.profile,
+          fullName: data.profile?.fullName || user?.user_metadata?.full_name || ''
+        };
+        setProfile(nextProfile);
+        saveUserProfile(userId, nextProfile);
+      })
+      .catch((error) => setMessage(error.message));
+    return () => {
+      active = false;
+    };
+  }, [user, userId]);
+
   const addressLine = useMemo(() => {
     const values = [profile.address, profile.city, profile.province, profile.postalCode].filter(Boolean);
     return values.length ? values.join(', ') : 'No address set';
@@ -27,10 +47,20 @@ export default function Profile() {
     setProfile((current) => ({ ...current, [field]: value }));
   }
 
-  function saveProfile(event) {
+  async function saveProfile(event) {
     event.preventDefault();
-    saveUserProfile(userId, profile);
-    setMessage('Profile saved.');
+    try {
+      if (user) {
+        const data = await updateMyProfile(profile);
+        saveUserProfile(userId, data.profile);
+        setProfile(data.profile);
+      } else {
+        saveUserProfile(userId, profile);
+      }
+      setMessage('Profile saved.');
+    } catch (error) {
+      setMessage(error.message);
+    }
   }
 
   return (

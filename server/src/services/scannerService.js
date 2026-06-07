@@ -30,7 +30,7 @@ export async function runScanner(scanner) {
     }
 
     if (env.aiClassificationEnabled && saved > 0) {
-      await classifyNewRawDealMentions(env.aiClassificationBatchLimit);
+      await classifyNewRawDealMentions(Math.max(saved, env.aiClassificationBatchLimit));
     }
 
     return finishScannerRun(run.id, {
@@ -58,6 +58,7 @@ export async function saveRawMention(mention) {
     raw_text: mention.raw_text || mention.snippet || mention.title,
     source_url: mention.source_url || null,
     source_type: mention.source_type,
+    source_published_at: mention.source_published_at || null,
     city: mention.city || null,
     province: mention.province || 'BC',
     detected_keywords: classification.detectedKeywords,
@@ -66,11 +67,7 @@ export async function saveRawMention(mention) {
     confidence_score: 0
   };
 
-  const { data, error } = await supabaseAdmin
-    .from('raw_deal_mentions')
-    .insert(payload)
-    .select('*')
-    .single();
+  const { data, error } = await insertRawMention(payload);
   if (error) throw error;
 
   if (!env.aiClassificationEnabled && classification.shouldCreateDeal) {
@@ -170,6 +167,7 @@ export async function convertRawMentionToDeal(id, forcedStatus = null) {
       description: mention.snippet || mention.raw_text || mention.title,
       source_type: mention.source_type || 'other',
       source_url: mention.source_url,
+      source_published_at: mention.source_published_at || null,
       status: forcedStatus || classification.dealStatus || 'pending',
       confidence_score: 50,
       source_confidence: mention.confidence_score || classification.confidenceScore || 50,
@@ -178,15 +176,34 @@ export async function convertRawMentionToDeal(id, forcedStatus = null) {
       detection_method: 'scanner'
     };
 
-  const { data: createdDeal, error: createError } = await supabaseAdmin
-    .from('deals')
-    .insert(deal)
-    .select('*')
-    .single();
+  const { data: createdDeal, error: createError } = await insertDeal(deal, '*');
   if (createError) throw createError;
 
   await markMentionConverted(id, createdDeal.id);
   return createdDeal.id;
+}
+
+async function insertRawMention(payload) {
+  const result = await supabaseAdmin
+    .from('raw_deal_mentions')
+    .insert(payload)
+    .select('*')
+    .single();
+
+  if (!isMissingSourcePublishedAt(result.error)) return result;
+  const { source_published_at, ...fallbackPayload } = payload;
+  return supabaseAdmin.from('raw_deal_mentions').insert(fallbackPayload).select('*').single();
+}
+
+async function insertDeal(deal, select = '*') {
+  const result = await supabaseAdmin.from('deals').insert(deal).select(select).single();
+  if (!isMissingSourcePublishedAt(result.error)) return result;
+  const { source_published_at, ...fallbackDeal } = deal;
+  return supabaseAdmin.from('deals').insert(fallbackDeal).select(select).single();
+}
+
+function isMissingSourcePublishedAt(error) {
+  return String(error?.message || '').includes('source_published_at');
 }
 
 async function createScannerRun(scannerName) {

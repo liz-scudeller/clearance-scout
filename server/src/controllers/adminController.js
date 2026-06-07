@@ -1,4 +1,4 @@
-import { deleteDeal, listPendingDeals, updateDealStatus } from '../services/dealService.js';
+import { deleteDeal, listPendingDeals, updateDealDetails, updateDealStatus } from '../services/dealService.js';
 import {
   convertRawMentionToDeal,
   ignoreRawMention,
@@ -18,7 +18,7 @@ export async function getAdminMe(req, res, next) {
 
 export async function getPendingDeals(req, res, next) {
   try {
-    const deals = await listPendingDeals();
+    const deals = await listPendingDeals(req.query);
     res.json({ deals });
   } catch (error) {
     next(error);
@@ -27,7 +27,16 @@ export async function getPendingDeals(req, res, next) {
 
 export async function patchDealStatus(req, res, next) {
   try {
-    const deal = await updateDealStatus(req.params.id, req.body.status);
+    const deal = await updateDealStatus(req.params.id, req.body.status, req.user.id);
+    res.json({ deal });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function patchDealDetails(req, res, next) {
+  try {
+    const deal = await updateDealDetails(req.params.id, req.body, req.user.id);
     res.json({ deal });
   } catch (error) {
     next(error);
@@ -36,7 +45,7 @@ export async function patchDealStatus(req, res, next) {
 
 export async function deleteAdminDeal(req, res, next) {
   try {
-    const deal = await deleteDeal(req.params.id);
+    const deal = await deleteDeal(req.params.id, req.user.id);
     res.json({ deal });
   } catch (error) {
     next(error);

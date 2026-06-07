@@ -47,3 +47,7 @@ export function subscribeToSavedDeals(callback) {
     window.removeEventListener('storage', callback);
   };
 }
+
+export function notifySavedDealsChanged() {
+  window.dispatchEvent(new CustomEvent(savedEventName));
+}

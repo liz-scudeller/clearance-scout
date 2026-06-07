@@ -1,8 +1,9 @@
 import { Link } from 'react-router-dom';
 import { useEffect, useRef, useState } from 'react';
 import { useAuth } from '../hooks/useAuth';
-import { hideDeal } from '../services/hiddenDeals';
-import { isDealSaved, saveDeal, subscribeToSavedDeals, toggleSavedDeal } from '../services/savedDeals';
+import { getMySavedDealIds, hideMyDeal, saveMyDeal, unsaveMyDeal } from '../services/api';
+import { hideDeal, notifyHiddenDealsChanged } from '../services/hiddenDeals';
+import { isDealSaved, notifySavedDealsChanged, saveDeal, subscribeToSavedDeals, toggleSavedDeal } from '../services/savedDeals';
 import { labelize } from '../utils/options';
 import ConfirmationButtons from './ConfirmationButtons';
 
@@ -28,6 +29,19 @@ export default function DealCard({ deal, onConfirmed, onHidden }) {
     return subscribeToSavedDeals(() => setSaved(isDealSaved(userId, deal.id)));
   }, [userId, deal.id]);
 
+  useEffect(() => {
+    if (!user) return;
+    let active = true;
+    getMySavedDealIds()
+      .then((data) => {
+        if (active) setSaved((data.dealIds || []).includes(deal.id));
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, [user, deal.id]);
+
   function handlePointerDown(event) {
     if (event.pointerType === 'mouse' && event.button !== 0) return;
     event.currentTarget.setPointerCapture?.(event.pointerId);
@@ -52,7 +66,7 @@ export default function DealCard({ deal, onConfirmed, onHidden }) {
     setDragging(false);
 
     if (dragX >= swipeThreshold) {
-      setSaved(saveDeal(userId, deal.id));
+      saveCurrentDeal();
       setLeaving('right');
       window.setTimeout(() => {
         setLeaving('');
@@ -62,7 +76,7 @@ export default function DealCard({ deal, onConfirmed, onHidden }) {
     }
 
     if (dragX <= -swipeThreshold) {
-      hideDeal(userId, deal.id);
+      hideCurrentDeal();
       setLeaving('left');
       window.setTimeout(() => onHidden?.(deal.id), 180);
       return;
@@ -80,7 +94,44 @@ export default function DealCard({ deal, onConfirmed, onHidden }) {
   function handleSave(event) {
     event.preventDefault();
     event.stopPropagation();
-    setSaved(toggleSavedDeal(userId, deal.id));
+    toggleCurrentDeal();
+  }
+
+  async function saveCurrentDeal() {
+    setSaved(true);
+    saveDeal(userId, deal.id);
+    if (!user) return;
+    try {
+      await saveMyDeal(deal.id);
+      notifySavedDealsChanged();
+    } catch {
+      setSaved(isDealSaved(userId, deal.id));
+    }
+  }
+
+  async function toggleCurrentDeal() {
+    const nextSaved = !saved;
+    setSaved(nextSaved);
+    toggleSavedDeal(userId, deal.id);
+    if (!user) return;
+    try {
+      if (nextSaved) await saveMyDeal(deal.id);
+      else await unsaveMyDeal(deal.id);
+      notifySavedDealsChanged();
+    } catch {
+      setSaved(!nextSaved);
+    }
+  }
+
+  async function hideCurrentDeal() {
+    hideDeal(userId, deal.id);
+    if (!user) return;
+    try {
+      await hideMyDeal(deal.id);
+      notifyHiddenDealsChanged();
+    } catch {
+      notifyHiddenDealsChanged();
+    }
   }
 
   const action = dragX > 24 ? 'save' : dragX < -24 ? 'hide' : '';
@@ -125,9 +176,7 @@ export default function DealCard({ deal, onConfirmed, onHidden }) {
           <p className="mt-2 text-[18px] font-black leading-none text-deal-orange">
             {deal.discount_text || 'Deal details available'}
           </p>
-          <p className="mt-2 line-clamp-1 text-[12px] font-medium leading-tight text-app-ink">
-            {categoryLine(deal)}
-          </p>
+          <CategoryChips deal={deal} />
           <p className="mt-auto pt-2 text-[11px] font-medium text-app-text">
             <span className="font-semibold text-app-ink">{activeConfirmations} confirmed active</span>
             <span className="px-1.5">·</span>
@@ -208,11 +257,57 @@ function PinMiniIcon() {
   );
 }
 
-function categoryLine(deal) {
-  const firstKeyword = Array.isArray(deal.keywords) ? deal.keywords[0] : String(deal.keywords || '').split(',')[0].trim();
-  const values = [labelize(deal.category), deal.subcategory, firstKeyword].filter(Boolean);
-  if (!values.length) return 'Local deal';
-  return values.slice(0, 3).join(' - ');
+function CategoryChips({ deal }) {
+  const categories = categoryValues(deal);
+
+  return (
+    <div className="mt-2 flex min-w-0 flex-wrap gap-1.5">
+      {categories.map((category) => (
+        <span key={category} className="inline-flex max-w-full items-center gap-1 rounded-full bg-[#F4F4F5] px-2 py-1 text-[11px] font-black leading-none text-app-ink">
+          <CategoryIcon category={category} />
+          <span className="truncate">{labelize(category)}</span>
+        </span>
+      ))}
+    </div>
+  );
+}
+
+function categoryValues(deal) {
+  const descriptionCategories = String(deal.description || '').match(/Categories:\s*([^\n]+)/i)?.[1]
+    ?.split(',')
+    .map((item) => item.trim().toLowerCase().replace(/\s+/g, '_'))
+    .filter(Boolean) || [];
+  const keyword = Array.isArray(deal.keywords) ? deal.keywords[0] : String(deal.keywords || '').split(',')[0].trim();
+  const values = [deal.category, deal.subcategory, ...descriptionCategories, keyword]
+    .filter(Boolean)
+    .map((value) => String(value).toLowerCase().replace(/\s+/g, '_'));
+  const unique = [...new Set(values)].filter((value) => value && value !== 'other');
+  return unique.length ? unique.slice(0, 4) : ['local_deal'];
+}
+
+function CategoryIcon({ category }) {
+  const icon = categoryIcon(category);
+
+  return (
+    <span className="grid h-4 w-4 shrink-0 place-items-center rounded-full bg-white text-[10px] leading-none shadow-sm" aria-hidden="true">
+      {icon}
+    </span>
+  );
+}
+
+function categoryIcon(category) {
+  if (category === 'sports') return 'S';
+  if (category === 'clothing') return 'C';
+  if (category === 'shoes') return 'Sh';
+  if (category === 'electronics') return 'E';
+  if (category === 'furniture') return 'F';
+  if (category === 'home') return 'H';
+  if (category === 'baby') return 'B';
+  if (category === 'beauty') return 'Be';
+  if (category === 'grocery') return 'G';
+  if (category === 'tools') return 'T';
+  if (category === 'toys') return 'Toy';
+  return 'D';
 }
 
 function formatUpdated(dateValue) {

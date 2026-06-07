@@ -34,8 +34,26 @@ export const getDeal = (id) => request(`/api/deals/${id}`);
 export const createDeal = (formData) => request('/api/deals', { method: 'POST', body: formData });
 export const confirmDeal = (id, confirmationStatus) => request(`/api/deals/${id}/confirm`, { method: 'POST', body: JSON.stringify({ confirmationStatus }) });
 export const getAdminMe = () => request('/api/admin/me');
-export const getPendingDeals = () => request('/api/admin/deals/pending');
+export const getMyProfile = () => request('/api/me/profile');
+export const updateMyProfile = (profile) => request('/api/me/profile', { method: 'PUT', body: JSON.stringify(profile) });
+export const getMyAlertPreferences = () => request('/api/me/alerts');
+export const updateMyAlertPreferences = (preferences) => request('/api/me/alerts', { method: 'PUT', body: JSON.stringify(preferences) });
+export const getMySavedDealIds = () => request('/api/me/saved-deals');
+export const saveMyDeal = (id) => request(`/api/me/saved-deals/${id}`, { method: 'PUT', body: JSON.stringify({}) });
+export const unsaveMyDeal = (id) => request(`/api/me/saved-deals/${id}`, { method: 'DELETE' });
+export const getMyHiddenDealIds = () => request('/api/me/hidden-deals');
+export const hideMyDeal = (id) => request(`/api/me/hidden-deals/${id}`, { method: 'PUT', body: JSON.stringify({}) });
+export const unhideMyDeal = (id) => request(`/api/me/hidden-deals/${id}`, { method: 'DELETE' });
+export function getPendingDeals(filters = {}) {
+  const params = new URLSearchParams();
+  Object.entries(filters).forEach(([key, value]) => {
+    if (value) params.set(key, value);
+  });
+  const query = params.toString();
+  return request(`/api/admin/deals/pending${query ? `?${query}` : ''}`);
+}
 export const updateDealStatus = (id, status) => request(`/api/admin/deals/${id}/status`, { method: 'PATCH', body: JSON.stringify({ status }) });
+export const updateAdminDeal = (id, deal) => request(`/api/admin/deals/${id}`, { method: 'PATCH', body: JSON.stringify(deal) });
 export const deleteDeal = (id) => request(`/api/admin/deals/${id}`, { method: 'DELETE' });
 export const runScanners = () => request('/api/admin/scanners/run', { method: 'POST', body: JSON.stringify({}) });
 export const getScannerRuns = () => request('/api/admin/scanners/runs');

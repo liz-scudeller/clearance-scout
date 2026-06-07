@@ -4,6 +4,7 @@ import { env } from './config/env.js';
 import adminRoutes from './routes/adminRoutes.js';
 import aiClassificationRoutes from './routes/aiClassificationRoutes.js';
 import dealRoutes from './routes/dealRoutes.js';
+import meRoutes from './routes/meRoutes.js';
 
 export function createApp() {
   const app = express();
@@ -30,6 +31,7 @@ export function createApp() {
   }));
   app.use(express.json());
   app.get('/health', (_req, res) => res.json({ ok: true }));
+  app.use('/api/me', meRoutes);
   app.use('/api/deals', dealRoutes);
   app.use('/api/admin', adminRoutes);
   app.use('/api/admin/ai', aiClassificationRoutes);

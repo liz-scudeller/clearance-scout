@@ -3,7 +3,6 @@ import AdminRoute from './components/AdminRoute';
 import Navbar from './components/Navbar';
 import ProtectedRoute from './components/ProtectedRoute';
 import Admin from './pages/Admin';
-import AdminScanner from './pages/AdminScanner';
 import Alerts from './pages/Alerts';
 import Dashboard from './pages/Dashboard';
 import DealDetails from './pages/DealDetails';
@@ -42,7 +41,8 @@ export default function App() {
         <Route path="/register" element={<Register />} />
         <Route path="/report" element={<ProtectedRoute><Report /></ProtectedRoute>} />
         <Route path="/admin" element={<AdminRoute><Admin /></AdminRoute>} />
-        <Route path="/admin/scanner" element={<AdminRoute><AdminScanner /></AdminRoute>} />
+        <Route path="/admin/scanner" element={<Navigate to="/admin" replace />} />
+        <Route path="/admin/scanner/:mentionId" element={<Navigate to="/admin" replace />} />
       </Routes>
     </>
   );
